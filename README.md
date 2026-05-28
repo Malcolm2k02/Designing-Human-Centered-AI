@@ -1,7 +1,7 @@
 # Designing-Human-Centered-AI
 Algorithmic Support
 
-# Steps for next session: Model cold turket more explicityly (more variance initially, potentially more longer term rewards)
+# Steps for next session: Model cold turkey more explicityly (more variance initially, potentially more longer term rewards)
 # Gradual strategy may have more smooth and faster rewards, but converges much slower compared to cold turkey
 # Incorporate observation model to incorporate noisy observations
 
