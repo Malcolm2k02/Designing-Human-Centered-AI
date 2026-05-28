@@ -1,13 +1,11 @@
 # Designing-Human-Centered-AI
 Algorithmic Support
 
-# Steps for next session: Model cold turkey more explicityly (more variance initially, potentially more longer term rewards)
-# Gradual strategy may have more smooth and faster rewards, but converges much slower compared to cold turkey
-# Incorporate observation model to incorporate noisy observations
-
-# Create pipeline for the system, finetune plots to look more presentable
-
-
+# Steps for next session: 
+* Model cold turkey more explicityly (more variance initially, potentially more longer term rewards)
+* Gradual strategy may have more smooth and faster rewards, but converges much slower compared to cold turkey
+* Incorporate observation model to incorporate noisy observations
+* Create pipeline for the system, finetune plots to look more presentable
 
 
 # Psychology-Informed Q-Learning Simulation for Snus Reduction
