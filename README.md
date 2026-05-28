@@ -175,207 +175,76 @@ The goal of the simulation is not to perfectly predict real snus behavior. Inste
 The project is especially focused on adaptive behavior change support, hidden trigger inference, and the tradeoff between effective nudging and user burden.
 
 
-┌──────────────────────────────────────────────────────────────┐
-│                START SIMULATION                             │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Create simulated users                                       │
-│                                                              │
-│ Each user receives:                                          │
-│ - User group                                                 │
-│ - Motivation                                                 │
-│ - Addiction level                                            │
-│ - Stress                                                     │
-│ - Self-efficacy                                              │
-│ - Adherence                                                  │
-│ - Hidden trigger profile                                     │
-│ - Quitting strategy                                          │
-│   (cold turkey / gradual reduction)                          │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Initialize reinforcement learning system                     │
-│                                                              │
-│ - Q-table initialized                                        │
-│ - Exploration rate (epsilon) initialized                     │
-│ - Trigger beliefs initialized equally                        │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ FOR each simulation day                                      │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ FOR each active user                                         │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Simulate daily cravings                                      │
-│                                                              │
-│ Number of cravings depends on:                               │
-│ - Baseline snus use                                          │
-│ - Addiction                                                  │
-│ - Stress                                                     │
-│ - Current craving                                            │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Generate hidden trigger(s)                                   │
-│                                                              │
-│ Examples:                                                    │
-│ - stress                                                     │
-│ - after_meal                                                 │
-│ - alcohol_context                                            │
-│ - boredom                                                    │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Observe noisy trigger clue                                   │
-│                                                              │
-│ The algorithm does NOT know the true trigger.                │
-│ It only receives uncertain observations.                     │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Estimate relapse risk                                        │
-│                                                              │
-│ Risk depends on:                                             │
-│ - Addiction                                                  │
-│ - Stress                                                     │
-│ - Craving                                                    │
-│ - Fatigue                                                    │
-│ - Self-efficacy                                              │
-│ - Hidden trigger context                                     │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Construct RL state                                           │
-│                                                              │
-│ State contains:                                              │
-│ - User type                                                  │
-│ - Most likely inferred trigger                               │
-│ - Risk level                                                 │
-│ - Fatigue level                                              │
-│ - Quitting strategy                                          │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Burden-aware intervention decision                           │
-│                                                              │
-│ The more nudges already sent today,                          │
-│ the less likely the system intervenes again.                 │
-│                                                              │
-│ Models notification fatigue and intervention burden.         │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                 ┌──────────┴──────────┐
-                 │                     │
-                 ▼                     ▼
-┌──────────────────────┐   ┌────────────────────────────┐
-│ Choose intervention   │   │ No intervention            │
-│ using Q-learning      │   │                            │
-│ + epsilon-greedy      │   │ System stays silent        │
-└──────────────────────┘   └────────────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Possible interventions                                       │
-│                                                              │
-│ - Economic reminder                                          │
-│ - Snus feedback                                              │
-│ - Small reduction goal                                       │
-│ - No intervention                                            │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Simulate user response                                       │
-│                                                              │
-│ Possible responses:                                          │
-│ - Skip snus                                                  │
-│ - Delay snus                                                 │
-│ - Use snus                                                   │
-│ - Ignore intervention                                        │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Update psychological variables                               │
-│                                                              │
-│ Update:                                                      │
-│ - Motivation                                                 │
-│ - Self-efficacy                                              │
-│ - Craving                                                    │
-│ - Fatigue                                                    │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Update trigger beliefs                                       │
-│                                                              │
-│ The system updates its belief about which                    │
-│ triggers are most likely causing cravings.                   │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Update Q-table                                               │
-│                                                              │
-│ Reinforcement learning update based on:                      │
-│ - Current state                                              │
-│ - Intervention                                               │
-│ - User response                                              │
-│ - Next state                                                 │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Update outcomes                                              │
-│                                                              │
-│ Track:                                                       │
-│ - Snus consumption                                           │
-│ - Money saved                                                │
-│ - Intervention fatigue                                       │
-│ - Adherence                                                  │
-│ - Trigger inference accuracy                                 │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Check dropout probability                                    │
-│                                                              │
-│ Dropout depends on:                                          │
-│ - Fatigue                                                    │
-│ - Motivation                                                 │
-│ - Self-efficacy                                              │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Repeat across days                                           │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│ OUTPUT RESULTS                                               │
-│                                                              │
-│ - Behaviour change over time                                 │
-│ - Snus reduction                                             │
-│ - Dropout trajectories                                       │
-│ - Intervention effectiveness                                 │
-│ - Trigger inference accuracy                                 │
-│ - Fatigue development                                        │
-│ - Economic savings                                           │
-│ - Differences between user groups                            │
-└──────────────────────────────────────────────────────────────┘
+## Algorithm Flowchart
+
+```mermaid
+flowchart TD
+
+    A[Start Simulation] --> B[Create Simulated Users]
+
+    B --> C[Initialize Q-Learning System]
+
+    C --> D[For Each Simulation Day]
+
+    D --> E[For Each Active User]
+
+    E --> F[Simulate Daily Cravings]
+
+    F --> G[Generate Hidden Trigger]
+
+    G --> H[Observe Noisy Trigger Clue]
+
+    H --> I[Estimate Relapse Risk]
+
+    I --> J[Construct RL State]
+
+    J --> K[Burden-Aware Intervention Decision]
+
+    K --> L{Intervene?}
+
+    L -->|Yes| M[Choose Nudge Using Q-Learning + Epsilon-Greedy]
+
+    L -->|No| N[No Intervention]
+
+    M --> O[Possible Interventions]
+    N --> P[User Continues Without Intervention]
+
+    O --> Q[Simulate User Response]
+
+    P --> Q
+
+    Q --> R{Response Type}
+
+    R -->|Skip| S[Increase Motivation and Self-Efficacy]
+
+    R -->|Delay| T[Small Positive Behaviour Change]
+
+    R -->|Use| U[Increase Craving and Relapse Risk]
+
+    R -->|Ignore| V[Increase Intervention Fatigue]
+
+    S --> W[Update Trigger Beliefs]
+    T --> W
+    U --> W
+    V --> W
+
+    W --> X[Update Q-Table]
+
+    X --> Y[Track Outcomes]
+
+    Y --> Z[Check Dropout Probability]
+
+    Z --> AA{More Days?}
+
+    AA -->|Yes| D
+
+    AA -->|No| AB[Output Results and Plots]
+
+    AB --> AC[Behaviour Change Analysis]
+
+    AC --> AD[Trigger Inference Accuracy]
+
+    AD --> AE[Dropout and Fatigue Analysis]
+
+    AE --> AF[Economic Savings Analysis]
+```
