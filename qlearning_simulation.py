@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+random.seed(42)
+np.random.seed(42)
+
 
 # -----------------------------
 # 1. Intervention actions
@@ -23,6 +26,14 @@ REWARD = {
 }
 
 COST_PER_PORTION = 0.23
+
+ALPHA = 0.1
+GAMMA = 0.9
+
+EPSILON_START = 0.30
+EPSILON_END = 0.05
+
+Q_TABLE = {}
 
 
 # -----------------------------
@@ -65,10 +76,6 @@ USER_TYPES = {
 }
 
 
-# -----------------------------
-# 3. User class
-# -----------------------------
-
 class User:
     def __init__(self, user_type):
         profile = USER_TYPES[user_type]
@@ -89,16 +96,16 @@ class User:
 
         self.strategy = random.choice(["cold_turkey", "gradual_reduction"])
 
-        self.nudge_values = {nudge: 0.0 for nudge in NUDGES}
-        self.nudge_counts = {nudge: 0 for nudge in NUDGES}
+    def get_state(self, context, risk):
+        return (
+            self.user_type,
+            context,
+            discretize(risk),
+            discretize(self.fatigue),
+            self.strategy
+        )
 
     def predict_risk(self, context):
-        """
-        Psychology-informed relapse risk prediction.
-        Risk increases with addiction, stress, craving, fatigue, and social pressure.
-        Risk decreases with motivation and self-efficacy.
-        """
-
         context_risk = {
             "after_meal": 0.15,
             "social_setting": 0.20,
@@ -122,43 +129,18 @@ class User:
 
         return max(0.0, min(1.0, risk))
 
-    def choose_nudge(self, context, risk):
-        """
-        Hybrid recommender:
-        1. Psychology-informed rule-based recommendation
-        2. Reinforcement learning personalization
-        3. Option to choose no intervention
-        """
+    def choose_nudge(self, context, risk, epsilon):
+        state = self.get_state(context, risk)
 
-        if risk < 0.30:
-            preferred = "no_intervention"
-        elif context == "morning_craving":
-            preferred = "snus_consumption_feedback"
-        elif self.strategy == "gradual_reduction":
-            preferred = "small_reduction_goal"
-        else:
-            preferred = "economic reminder"
+        if state not in Q_TABLE:
+            Q_TABLE[state] = {nudge: 0.0 for nudge in NUDGES}
 
-        if random.random() < 0.20:
+        if random.random() < epsilon:
             return random.choice(NUDGES)
 
-        scores = self.nudge_values.copy()
-        scores[preferred] += 0.4
-
-        if self.fatigue > 0.6:
-            scores["no_intervention"] += 0.6
-
-        return max(scores, key=scores.get)
+        return max(Q_TABLE[state], key=Q_TABLE[state].get)
 
     def respond_to_nudge(self, risk, nudge):
-        """
-        Simulates response:
-        skip = avoided snus
-        delay = delayed use
-        use = used snus
-        ignore = ignored intervention
-        """
-
         if nudge == "no_intervention":
             use_probability = (
                 0.30 +
@@ -206,34 +188,29 @@ class User:
         else:
             return "use"
 
-    def update_learning(self, nudge, response):
-        """
-        Bandit-style reinforcement learning update.
-        """
-
+    def update_learning(self, state, nudge, response, next_state):
         reward = REWARD[response]
 
-        if nudge == "no_intervention" and response == "skip":
-            reward += 1
+        if nudge == "no_intervention":
+            if response == "skip":
+                reward = 0.5
+            elif response == "use":
+                reward = -2
 
         if response == "ignore":
             reward -= self.fatigue
 
-        self.nudge_counts[nudge] += 1
-        count = self.nudge_counts[nudge]
+        if next_state not in Q_TABLE:
+            Q_TABLE[next_state] = {n: 0.0 for n in NUDGES}
 
-        old_value = self.nudge_values[nudge]
-        new_value = old_value + (reward - old_value) / count
+        old_q = Q_TABLE[state][nudge]
+        best_next_q = max(Q_TABLE[next_state].values())
 
-        self.nudge_values[nudge] = new_value
+        new_q = old_q + ALPHA * (reward + GAMMA * best_next_q - old_q)
+
+        Q_TABLE[state][nudge] = new_q
 
     def update_feedback_loops(self, response, nudge):
-        """
-        Psychological feedback loops:
-        Small successes increase self-efficacy.
-        Ignored nudges increase fatigue.
-        """
-
         if response == "skip":
             self.motivation = min(1.0, self.motivation + 0.015)
             self.self_efficacy = min(1.0, self.self_efficacy + 0.025)
@@ -248,29 +225,26 @@ class User:
 
         elif response == "ignore":
             self.fatigue = min(1.0, self.fatigue + 0.05)
+            self.motivation = max(0.0, self.motivation - 0.003)
 
         elif response == "use":
             self.motivation = max(0.0, self.motivation - 0.005)
             self.self_efficacy = max(0.0, self.self_efficacy - 0.008)
             self.craving = min(1.0, self.craving + 0.02)
 
-        if nudge == "economic reminder" and response in ["skip", "delay"]:
-            self.stress = max(0.0, self.stress - 0.04)
+        if response in ["skip", "delay"]:
+            if nudge == "economic reminder":
+                self.motivation = min(1.0, self.motivation + 0.010)
 
-        if nudge == "snus_consumption_feedback" and response in ["skip", "delay"]:
-            self.stress = max(0.0, self.stress - 0.03)
-        
-        if nudge == "small_reduction_goal" and response in ["skip", "delay"]:
-            self.stress = max(0.0, self.stress - 0.02)
-        
-        if nudge == "no_intervention" and response in ["skip", "delay"]:
-            self.stress = max(0.0, self.stress - 0.04)
+            elif nudge == "snus_consumption_feedback":
+                self.self_efficacy = min(1.0, self.self_efficacy + 0.010)
+                self.craving = max(0.0, self.craving - 0.010)
+
+            elif nudge == "small_reduction_goal":
+                self.self_efficacy = min(1.0, self.self_efficacy + 0.015)
+                self.motivation = min(1.0, self.motivation + 0.005)
 
     def check_dropout(self):
-        """
-        Dropout becomes more likely when fatigue is high and motivation/self-efficacy are low.
-        """
-
         dropout_probability = (
             0.005 +
             0.08 * self.fatigue +
@@ -284,16 +258,20 @@ class User:
             self.active = False
 
 
-# -----------------------------
-# 4. Simulation
-# -----------------------------
+def discretize(value, low=0.33, high=0.66):
+    if value < low:
+        return "low"
+    elif value < high:
+        return "medium"
+    else:
+        return "high"
 
-def simulate(n_users=300, days=30, algorithm=True):
+
+def simulate(n_users=300, days=30, algorithm=True, training_mode=True):
     users = []
-    user_type_names = list(USER_TYPES.keys())
 
     for _ in range(n_users):
-        user_type = random.choice(user_type_names)
+        user_type = random.choice(list(USER_TYPES.keys()))
         users.append(User(user_type))
 
     results = []
@@ -309,6 +287,13 @@ def simulate(n_users=300, days=30, algorithm=True):
     ]
 
     for day in range(1, days + 1):
+
+        if training_mode:
+            progress = (day - 1) / max(1, days - 1)
+            current_epsilon = EPSILON_START + progress * (EPSILON_END - EPSILON_START)
+        else:
+            current_epsilon = 0.0
+
         for user_id, user in enumerate(users):
 
             if not user.active:
@@ -362,15 +347,21 @@ def simulate(n_users=300, days=30, algorithm=True):
 
                     continue
 
-                nudge = user.choose_nudge(context, risk)
+                state = user.get_state(context, risk)
+                nudge = user.choose_nudge(context, risk, current_epsilon)
 
                 if nudge != "no_intervention":
                     nudges_sent += 1
 
                 response = user.respond_to_nudge(risk, nudge)
 
-                user.update_learning(nudge, response)
                 user.update_feedback_loops(response, nudge)
+
+                next_risk = user.predict_risk(context)
+                next_state = user.get_state(context, next_risk)
+
+                if training_mode:
+                    user.update_learning(state, nudge, response, next_state)
 
                 if response == "skip":
                     skips += 1
@@ -411,11 +402,31 @@ def simulate(n_users=300, days=30, algorithm=True):
 
 
 # -----------------------------
-# 5. Run simulation
+# Train and evaluate
 # -----------------------------
 
-baseline = simulate(n_users=300, days=30, algorithm=False)
-adaptive = simulate(n_users=300, days=30, algorithm=True)
+Q_TABLE = {}
+
+training = simulate(
+    n_users=5000,
+    days=30,
+    algorithm=True,
+    training_mode=True
+)
+
+adaptive = simulate(
+    n_users=1000,
+    days=30,
+    algorithm=True,
+    training_mode=False
+)
+
+baseline = simulate(
+    n_users=1000,
+    days=30,
+    algorithm=False,
+    training_mode=False
+)
 
 
 # -----------------------------
@@ -457,78 +468,149 @@ summarize(adaptive, "Psychology-informed adaptive recommender")
 
 
 # -----------------------------
-# 7. Plots
+# 7. Improved plots
 # -----------------------------
 
-baseline_daily = baseline.groupby("day")["snus_used"].mean()
-adaptive_daily = adaptive.groupby("day")["snus_used"].mean()
+plt.rcParams.update({
+    "figure.figsize": (9, 5),
+    "axes.grid": True,
+    "grid.alpha": 0.3,
+    "font.size": 11
+})
+
+# Print some learned Q-values for interpretability
+# -----------------------------
+# Inspect learned Q-table
+# -----------------------------
+
+import random
+
+print("\nRandom learned Q-values:\n")
+
+# Randomly sample 5 states from the Q-table
+random_states = random.sample(list(Q_TABLE.keys()), min(5, len(Q_TABLE)))
+
+for state in random_states:
+
+    actions = Q_TABLE[state]
+
+    # Find action with highest learned value
+    best_action = max(actions, key=actions.get)
+
+    print("STATE:")
+    print(state)
+
+    print("\nQ-values:")
+    for action, value in actions.items():
+        print(f"  {action}: {value:.2f}")
+
+    print(f"\nBest learned action: {best_action}")
+
+    print("\n" + "-" * 60 + "\n")
+
+# Plot 1: Baseline vs adaptive recommender
+baseline_active = baseline[baseline["active"] == True]
+adaptive_active = adaptive[adaptive["active"] == True]
+
+baseline_daily = baseline_active.groupby("day")["snus_used"].mean()
+adaptive_daily = adaptive_active.groupby("day")["snus_used"].mean()
 
 plt.figure()
-plt.plot(baseline_daily.index, baseline_daily.values, label="Tracking only")
-plt.plot(adaptive_daily.index, adaptive_daily.values, label="Adaptive recommender")
-plt.xlabel("Day")
-plt.ylabel("Average snus portions per user")
-plt.title("Simulation of snus reduction over time")
+plt.plot(baseline_daily.index, baseline_daily.values, linewidth=2.5, label="Tracking-only baseline")
+plt.plot(adaptive_daily.index, adaptive_daily.values, linewidth=2.5, label="Adaptive recommender")
+
+plt.xlabel("Simulation day")
+plt.ylabel("Average snus portions used per active user")
+plt.title("Average Daily Snus Use: Baseline vs Adaptive Recommender")
 plt.legend()
+plt.tight_layout()
 plt.show()
 
 
-adaptive_by_type = adaptive.groupby(["day", "user_type"])["snus_used"].mean().reset_index()
+# Plot 2: Adaptive recommender by user type
+adaptive_active_by_type = (
+    adaptive_active
+    .groupby(["day", "user_type"])["snus_used"]
+    .mean()
+    .reset_index()
+)
 
 plt.figure()
-for user_type in adaptive_by_type["user_type"].unique():
-    subset = adaptive_by_type[adaptive_by_type["user_type"] == user_type]
-    plt.plot(subset["day"], subset["snus_used"], label=user_type)
+for user_type in adaptive_active_by_type["user_type"].unique():
+    subset = adaptive_active_by_type[adaptive_active_by_type["user_type"] == user_type]
+    plt.plot(subset["day"], subset["snus_used"], linewidth=2, label=user_type)
 
-plt.xlabel("Day")
-plt.ylabel("Average snus portions")
-plt.title("Adaptive algorithm effect by user type")
-plt.legend()
+plt.xlabel("Simulation day")
+plt.ylabel("Average snus portions used per active user")
+plt.title("Adaptive Recommender Effect by User Type")
+plt.legend(title="User type", fontsize=9)
+plt.tight_layout()
 plt.show()
 
 
-dropout_by_type = adaptive.groupby(["day", "user_type"])["active"].mean().reset_index()
+# Plot 3: Dropout / retention over time by user type
+dropout_by_type = (
+    adaptive
+    .groupby(["day", "user_type"])["active"]
+    .mean()
+    .reset_index()
+)
 
 plt.figure()
 for user_type in dropout_by_type["user_type"].unique():
     subset = dropout_by_type[dropout_by_type["user_type"] == user_type]
-    plt.plot(subset["day"], subset["active"], label=user_type)
+    plt.plot(subset["day"], subset["active"], linewidth=2, label=user_type)
 
-plt.xlabel("Day")
-plt.ylabel("Proportion still active")
-plt.title("Dropout over time by user type")
-plt.legend()
+plt.xlabel("Simulation day")
+plt.ylabel("Proportion of users still active")
+plt.title("User Retention Over Time by User Type")
+plt.ylim(0, 1.05)
+plt.legend(title="User type", fontsize=9)
+plt.tight_layout()
 plt.show()
 
 
-money_daily = adaptive.groupby("day")["money_saved"].mean()
+# Plot 4: Daily money saved by user type
+money_daily_by_type = (
+    adaptive_active
+    .groupby(["day", "user_type"])["money_saved"]
+    .mean()
+    .reset_index()
+)
 
 plt.figure()
-plt.plot(money_daily.index, money_daily.values)
-plt.xlabel("Day")
-plt.ylabel("Average money saved per user (€)")
-plt.title("Estimated money saved over time")
+for user_type in money_daily_by_type["user_type"].unique():
+    subset = money_daily_by_type[money_daily_by_type["user_type"] == user_type]
+    plt.plot(subset["day"], subset["money_saved"], linewidth=2, label=user_type)
+
+plt.xlabel("Simulation day")
+plt.ylabel("Average daily money saved per active user (€)")
+plt.title("Daily Estimated Money Saved by User Type")
+plt.legend(title="User type", fontsize=9)
+plt.tight_layout()
 plt.show()
 
 
-self_efficacy_daily = adaptive.groupby("day")["self_efficacy"].mean()
+# Plot 5: Cumulative money saved by user type
+money_daily_by_type["cumulative_money_saved"] = (
+    money_daily_by_type
+    .groupby("user_type")["money_saved"]
+    .cumsum()
+)
 
 plt.figure()
-plt.plot(self_efficacy_daily.index, self_efficacy_daily.values)
-plt.xlabel("Day")
-plt.ylabel("Average self-efficacy")
-plt.title("Self-efficacy development over time")
-plt.show()
+for user_type in money_daily_by_type["user_type"].unique():
+    subset = money_daily_by_type[money_daily_by_type["user_type"] == user_type]
+    plt.plot(
+        subset["day"],
+        subset["cumulative_money_saved"],
+        linewidth=2,
+        label=user_type
+    )
 
-# -----------------------------
-# Cumulative money saved
-# -----------------------------
-
-cumulative_money = adaptive.groupby("day")["money_saved"].mean().cumsum()
-
-plt.figure()
-plt.plot(cumulative_money.index, cumulative_money.values)
-plt.xlabel("Day")
-plt.ylabel("Cumulative average money saved per user (€)")
-plt.title("Cumulative money saved over time")
+plt.xlabel("Simulation day")
+plt.ylabel("Cumulative average money saved per active user (€)")
+plt.title("Cumulative Estimated Money Saved by User Type")
+plt.legend(title="User type", fontsize=9)
+plt.tight_layout()
 plt.show()
