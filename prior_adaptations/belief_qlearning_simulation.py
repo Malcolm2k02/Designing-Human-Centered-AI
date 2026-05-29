@@ -63,6 +63,49 @@ CONTEXT_RISK = {
     "sleeping": 0.18
 }
 
+OBSERVATION_MODEL = {
+    "after_meal": {
+        "after_meal": 0.60, "boredom": 0.15, "social_setting": 0.10,
+        "stress": 0.05, "studying": 0.03, "morning_craving": 0.03,
+        "alcohol_context": 0.02, "sleeping": 0.02
+    },
+    "social_setting": {
+        "social_setting": 0.55, "alcohol_context": 0.20, "stress": 0.10,
+        "after_meal": 0.05, "boredom": 0.05, "studying": 0.02,
+        "morning_craving": 0.02, "sleeping": 0.01
+    },
+    "stress": {
+        "stress": 0.55, "studying": 0.15, "boredom": 0.10,
+        "social_setting": 0.08, "after_meal": 0.04, "sleeping": 0.03,
+        "morning_craving": 0.03, "alcohol_context": 0.02
+    },
+    "studying": {
+        "studying": 0.60, "stress": 0.20, "boredom": 0.08,
+        "after_meal": 0.04, "social_setting": 0.03, "morning_craving": 0.02,
+        "sleeping": 0.02, "alcohol_context": 0.01
+    },
+    "alcohol_context": {
+        "alcohol_context": 0.65, "social_setting": 0.20, "stress": 0.05,
+        "boredom": 0.04, "after_meal": 0.03, "morning_craving": 0.01,
+        "studying": 0.01, "sleeping": 0.01
+    },
+    "morning_craving": {
+        "morning_craving": 0.65, "stress": 0.10, "sleeping": 0.10,
+        "after_meal": 0.05, "boredom": 0.04, "studying": 0.03,
+        "social_setting": 0.02, "alcohol_context": 0.01
+    },
+    "boredom": {
+        "boredom": 0.55, "stress": 0.15, "studying": 0.10,
+        "social_setting": 0.08, "after_meal": 0.05, "sleeping": 0.03,
+        "morning_craving": 0.02, "alcohol_context": 0.02
+    },
+    "sleeping": {
+        "sleeping": 0.60, "morning_craving": 0.15, "stress": 0.10,
+        "boredom": 0.05, "after_meal": 0.04, "studying": 0.03,
+        "social_setting": 0.02, "alcohol_context": 0.01
+    }
+}
+
 
 # -----------------------------
 # 3. Psychology-informed user groups
@@ -123,6 +166,10 @@ class User:
 
         self.strategy = random.choice(["cold_turkey", "gradual_reduction"])
 
+        self.current_day = 1
+        self.success_streak = 0
+        self.total_successes = 0
+
         self.trigger_beliefs = {
             trigger: 1 / len(CONTEXTS) for trigger in CONTEXTS
         }
@@ -142,10 +189,19 @@ class User:
         )
 
     def observe_trigger(self, true_triggers):
-        if random.random() < 0.75:
-            return random.choice(true_triggers)
-        else:
-            return random.choice(CONTEXTS)
+        """
+        Structured noisy observation model.
+
+        The app does not observe the true trigger directly.
+        It observes a noisy clue that can confuse related triggers.
+        """
+
+        true_trigger = random.choice(true_triggers)
+
+        possible_observations = list(OBSERVATION_MODEL[true_trigger].keys())
+        probabilities = list(OBSERVATION_MODEL[true_trigger].values())
+
+        return np.random.choice(possible_observations, p=probabilities)
 
     def update_trigger_beliefs(self, observed_trigger, response):
         if response == "use":
@@ -167,11 +223,6 @@ class User:
             self.trigger_beliefs[trigger] /= total
 
     def predict_risk(self, true_triggers):
-        """
-        Actual risk used to simulate user behavior.
-        This uses the real hidden trigger.
-        """
-
         trigger_risk = sum(CONTEXT_RISK[t] for t in true_triggers)
 
         risk = (
@@ -185,14 +236,24 @@ class User:
             trigger_risk
         )
 
+        # Cold turkey is harder early, but can become more effective later.
+        if self.strategy == "cold_turkey":
+            if self.current_day <= 10:
+                risk += 0.08
+                risk += random.uniform(-0.08, 0.08)  # higher early variance
+            else:
+                risk -= min(0.08, self.total_successes * 0.003)
+
+        # Gradual reduction is smoother and easier early, but improves more slowly.
+        elif self.strategy == "gradual_reduction":
+            if self.current_day <= 10:
+                risk -= 0.04
+            else:
+                risk -= min(0.04, self.total_successes * 0.0015)
+
         return max(0.0, min(1.0, risk))
 
     def estimate_risk_from_beliefs(self):
-        """
-        Estimated risk used by the algorithm.
-        This does NOT use the hidden true trigger.
-        """
-
         expected_trigger_risk = 0.0
 
         for trigger, probability in self.trigger_beliefs.items():
@@ -208,6 +269,18 @@ class User:
             0.20 * self.self_efficacy +
             expected_trigger_risk
         )
+
+        if self.strategy == "cold_turkey":
+            if self.current_day <= 10:
+                risk += 0.06
+            else:
+                risk -= min(0.06, self.total_successes * 0.0025)
+
+        elif self.strategy == "gradual_reduction":
+            if self.current_day <= 10:
+                risk -= 0.03
+            else:
+                risk -= min(0.035, self.total_successes * 0.0012)
 
         return max(0.0, min(1.0, risk))
 
@@ -258,6 +331,18 @@ class User:
             * (1 - self.addiction * 0.4)
         )
 
+        if self.strategy == "cold_turkey":
+            if self.current_day <= 10:
+                success_probability -= 0.06
+            else:
+                success_probability += min(0.08, self.total_successes * 0.002)
+
+        elif self.strategy == "gradual_reduction":
+            if self.current_day <= 10:
+                success_probability += 0.04
+            else:
+                success_probability += min(0.035, self.total_successes * 0.001)
+
         success_probability -= actual_risk * 0.15
         success_probability = max(0.05, min(0.90, success_probability))
 
@@ -296,11 +381,22 @@ class User:
         Q_TABLE[state][nudge] = new_q
 
     def update_feedback_loops(self, response, nudge):
+        if response in ["skip", "delay"]:
+            self.success_streak += 1
+            self.total_successes += 1
+        else:
+            self.success_streak = 0
+
         if response == "skip":
             self.motivation = min(1.0, self.motivation + 0.010)
             self.self_efficacy = min(1.0, self.self_efficacy + 0.010)
             self.craving = max(0.0, self.craving - 0.025)
             self.fatigue = max(0.0, self.fatigue - 0.008)
+
+            if self.strategy == "cold_turkey":
+                self.self_efficacy = min(1.0, self.self_efficacy + 0.006)
+            elif self.strategy == "gradual_reduction":
+                self.motivation = min(1.0, self.motivation + 0.003)
 
         elif response == "delay":
             self.motivation = min(1.0, self.motivation + 0.005)
@@ -316,6 +412,12 @@ class User:
             self.motivation = max(0.0, self.motivation - 0.004)
             self.self_efficacy = max(0.0, self.self_efficacy - 0.006)
             self.craving = min(1.0, self.craving + 0.015)
+
+            if self.strategy == "cold_turkey":
+                self.self_efficacy = max(0.0, self.self_efficacy - 0.006)
+                self.craving = min(1.0, self.craving + 0.006)
+            elif self.strategy == "gradual_reduction":
+                self.self_efficacy = max(0.0, self.self_efficacy - 0.002)
 
         if response in ["skip", "delay"]:
             if nudge == "economic reminder":
@@ -382,7 +484,7 @@ def simulate(n_users=300, days=30, algorithm=True, training_mode=True):
             current_epsilon = 0.0
 
         for user_id, user in enumerate(users):
-
+            user.current_day = day
             if not user.active:
                 results.append({
                     "day": day,
