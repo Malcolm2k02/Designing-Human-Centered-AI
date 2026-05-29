@@ -2,249 +2,453 @@
 Algorithmic Support
 
 # Things to fix: 
-* Model cold turkey more explicityly (more variance initially, potentially more longer term rewards)
-* Gradual strategy may have more smooth and faster rewards, but converges much slower compared to cold turkey
-* Incorporate observation model to incorporate noisy observations
-* Create pipeline for the system, finetune plots to look more presentable
+* Maybe full POMDP environment
+* Decide on final plots
 
+Psychology-Informed Reinforcement Learning for Adaptive Snus Reduction
+Overview
 
-# Psychology-Informed Q-Learning Simulation for Snus Reduction
+This project implements a psychology-informed adaptive recommender system designed to support snus reduction through personalized behavioral interventions.
 
-This project simulates a psychology-informed adaptive recommender system for helping users reduce snus consumption. The system is modeled as a simplified partially observable contextual reinforcement learning problem, where the application does not directly know the user's true craving trigger but tries to infer it over time.
+The system is modeled as a partially observable reinforcement learning problem where the true causes of cravings are hidden from the algorithm. Instead of directly observing a user's trigger, the system receives noisy contextual observations and must infer likely triggers over time.
 
-## Project Overview
+The goal is to investigate how reinforcement learning, behavioral psychology, and hidden-state inference can be combined to support behavior change while balancing intervention effectiveness against user fatigue and dropout.
 
-The simulation compares two systems:
+Research Motivation
 
-1. **Tracking-only baseline**
+Digital health interventions often face two key challenges:
 
-   * The user receives no adaptive intervention.
-   * Snus use may still change slightly due to self-monitoring and natural variation.
+Determining the right moment to intervene.
+Determining the right intervention for a particular user.
 
-2. **Psychology-informed adaptive recommender**
+In practice, users have different addiction levels, motivations, triggers, and responses to interventions. Furthermore, many triggers are not directly observable.
 
-   * The system uses Q-learning to decide which intervention, or nudge, to provide.
-   * The recommender learns from simulated user responses over time.
-   * It can also learn that sometimes the best action is to provide no intervention.
+This project explores whether an adaptive reinforcement learning system can learn personalized intervention strategies under uncertainty.
 
-## Main Idea
+Project Structure
 
-The system tries to answer two questions:
+The project is divided into multiple modules:
 
-* When is the right moment to intervene?
-* What is the right intervention for this user in this situation?
+project/
+│
+├── main.py
+├── config.py
+├── user.py
+├── simulation.py
+├── evaluation.py
+├── plots.py
+├── utils.py
+└── README.md
+config.py
 
-Since real users may not always know their own triggers, the simulation treats triggers as partially hidden. The system only observes noisy clues and gradually updates its belief about what triggers each user.
+Contains:
 
-## User Groups
+user group definitions
+trigger definitions
+observation model
+Q-learning parameters
+reward function
+intervention definitions
+user.py
 
-The simulation includes four user types:
+Contains the User class and models:
 
-* High relapse risk / high intake
-* High relapse risk / low intake
-* Low relapse risk / high intake
-* Low relapse risk / low intake
+psychological variables
+relapse risk
+intervention responses
+trigger belief updates
+Q-learning updates
+dropout behavior
+simulation.py
 
-Each group differs in baseline snus use, motivation, addiction level, stress, adherence, and self-efficacy.
+Contains:
 
-## Hidden Triggers
+simulation loop
+intervention scheduling
+event generation
+user interaction dynamics
+evaluation.py
 
-The model includes several possible craving triggers:
+Contains:
 
-* after_meal
-* social_setting
-* stress
-* studying
-* alcohol_context
-* morning_craving
-* boredom
-* sleeping
+summary statistics
+trigger inference evaluation
+Q-value inspection
+plots.py
 
-Each user has a hidden personal trigger profile. The system does not directly observe this profile. Instead, it receives noisy observations and updates its belief about the user’s likely triggers.
+Contains all visualization code.
 
-## Interventions
+utils.py
+
+Contains helper functions such as:
+
+state discretization
+hidden trigger generation
+User Groups
+
+The simulation models four user populations:
+
+High relapse risk / high intake
+high addiction
+high stress
+low self-efficacy
+high baseline snus use
+High relapse risk / low intake
+lower consumption
+high stress
+vulnerable to relapse
+Low relapse risk / high intake
+high consumption
+stronger motivation
+stronger self-efficacy
+Low relapse risk / low intake
+low consumption
+low addiction
+high motivation
+
+Each group is initialized using different psychological profiles.
+
+Hidden Trigger Model
+
+The simulation assumes that cravings arise from hidden contextual triggers.
+
+Possible triggers include:
+
+after_meal
+social_setting
+stress
+studying
+alcohol_context
+morning_craving
+boredom
+sleeping
+
+Each user is assigned a hidden trigger profile representing their underlying susceptibility to different craving situations.
+
+The true trigger is never directly observed by the recommender.
+
+Observation Model
+
+The application does not directly observe the user's true trigger.
+
+Instead, it receives noisy observations generated by an observation model.
+
+For example:
+
+True trigger:
+alcohol_context
+
+Observed clue:
+social_setting
+
+This models the uncertainty faced by real-world digital health systems.
+
+The observation model intentionally confuses psychologically related contexts, such as:
+
+alcohol_context ↔ social_setting
+stress ↔ studying
+sleeping ↔ morning_craving
+Belief State and Trigger Inference
+
+The system maintains a probability distribution over possible triggers.
+
+Example:
+
+stress:           0.40
+after_meal:       0.25
+social_setting:   0.15
+boredom:          0.10
+other triggers:   0.10
+
+As observations arrive, the belief distribution is updated.
+
+The trigger with the highest probability becomes the system's inferred trigger.
+
+Actual Risk vs Estimated Risk
+
+The simulation distinguishes between:
+
+Actual Risk
+
+The user's true relapse risk.
+
+Actual risk is influenced by:
+
+addiction
+stress
+craving
+social pressure
+fatigue
+hidden trigger
+
+Actual risk determines the user's behavior.
+
+Estimated Risk
+
+The recommender's estimate of relapse risk.
+
+Estimated risk is calculated from:
+
+current trigger beliefs
+psychological variables
+
+The recommender only has access to estimated risk when selecting interventions.
+
+This separation creates a simplified partially observable decision-making problem.
+
+Intervention Strategies
 
 The recommender can choose between four actions:
 
-* no_intervention
-* economic reminder
-* snus_consumption_feedback
-* small_reduction_goal
+no_intervention
+economic_reminder
+snus_consumption_feedback
+small_reduction_goal
+No Intervention
 
-The `no_intervention` action is included because excessive nudging can create fatigue, and sometimes not intervening may be better than sending another reminder.
+Included as a valid action because excessive nudging can increase fatigue and dropout.
 
-## Reinforcement Learning Approach
+The system can learn that sometimes the best intervention is not intervening.
 
-The simulation uses tabular Q-learning.
+Quitting Strategies
+
+Each user follows one of two cessation strategies.
+
+Cold Turkey
+
+The user attempts to stop immediately.
+
+Characteristics:
+
+higher early relapse risk
+greater outcome variability
+stronger long-term benefits if successful
+Gradual Reduction
+
+The user reduces consumption incrementally.
+
+Characteristics:
+
+lower early relapse risk
+smoother behavioral change
+slower long-term improvement
+
+The simulation models these strategies differently through risk and feedback dynamics.
+
+Psychological Variables
+
+Each user has:
+
+motivation
+addiction severity
+stress
+adherence
+self-efficacy
+craving
+social pressure
+intervention fatigue
+
+These variables evolve over time based on user behavior and intervention outcomes.
+
+Intervention Fatigue and Dropout
+
+Repeated interventions can increase fatigue.
+
+Fatigue increases when:
+
+nudges are ignored
+too many interventions are delivered
+
+Higher fatigue increases the probability of:
+
+intervention disengagement
+user dropout
+
+This models notification fatigue and intervention burden commonly observed in digital health applications.
+
+Reinforcement Learning
+
+The recommender uses tabular Q-learning.
+
+State
 
 The state consists of:
 
-* user type
-* inferred trigger
-* relapse risk level
-* fatigue level
-* quitting strategy
+user type
+inferred trigger
+estimated risk level
+fatigue level
+quitting strategy
+Actions
 
-The action is the selected nudge.
+Available actions:
 
-The reward is based on the user response:
+no_intervention
+economic_reminder
+snus_consumption_feedback
+small_reduction_goal
+Rewards
 
-* skip: user avoids snus
-* delay: user delays snus use
-* use: user uses snus
-* ignore: user ignores the intervention
+User responses generate rewards:
 
-The Q-table learns which intervention is expected to work best in different user states.
+Response	Meaning
+skip	User avoids snus
+delay	User postpones snus
+use	User uses snus
+ignore	User ignores intervention
 
-## Partial Observability
+The Q-table learns which interventions are most effective in different situations.
 
-The true trigger is hidden from the algorithm. The system only acts based on its current belief about the most likely trigger.
+Exploration Strategy
 
-This makes the simulation closer to real-world digital health applications, where an app may need to infer user context from uncertain signals such as timing, behavior patterns, or self-reports.
+The system uses epsilon-greedy exploration.
 
-## Psychological Variables
+During training:
 
-Each simulated user has psychological and behavioral variables, including:
+exploration begins at 30%
+exploration gradually decreases
+the system increasingly exploits learned knowledge
 
-* motivation
-* addiction severity
-* stress
-* adherence
-* self-efficacy
-* craving
-* social pressure
-* intervention fatigue
+After training:
 
-These variables affect relapse risk, response to interventions, dropout, and learning over time.
+exploration is disabled
+only the learned policy is evaluated
+Economic Feedback
 
-## Dropout and Fatigue
+The simulation estimates money saved by comparing current consumption with the user's baseline consumption.
 
-The model includes user dropout. Users are more likely to abandon the system when fatigue is high and motivation or self-efficacy is low.
+Example:
 
-Fatigue increases when users receive too many interventions or ignore nudges. This models notification fatigue and intervention burden.
+Baseline:
+10 portions/day
 
-## Economic Feedback
+Current:
+5 portions/day
 
-The simulation estimates money saved by comparing daily snus consumption with each user’s baseline snus use.
+Savings:
+5 avoided portions/day
 
-For example, if a user normally uses 10 portions per day and later uses 5 portions, the model estimates the money saved from consuming 5 fewer portions.
+This allows the model to evaluate both behavioral and economic outcomes.
 
-## Training and Evaluation
-
-The system first trains the Q-table using simulated users and dynamic epsilon-greedy exploration.
-
-After training, the learned policy is evaluated without exploration. This separates learning performance from final policy performance.
+Evaluation Metrics
 
 The simulation compares:
 
-* tracking-only baseline
-* adaptive recommender
+Tracking-only Baseline
 
-## Output and Plots
+No adaptive interventions.
 
-The code produces summary statistics and several plots, including:
+Adaptive Recommender
 
-* average daily snus use: baseline vs adaptive recommender
-* adaptive effect by user type
-* retention/dropout by user type
-* daily money saved by user type
-* cumulative money saved by user type
-* distribution of inferred triggers
-* adaptive effect by inferred trigger
-* event-level trigger inference accuracy
-* intervention fatigue by user type
+Q-learning-based intervention system.
 
-## How to Run
+Key evaluation metrics:
 
-Install the required packages:
+snus reduction
+dropout rate
+intervention fatigue
+self-efficacy
+money saved
+trigger inference accuracy
+Visualizations
 
-```bash
+The project generates multiple plots:
+
+Core Evaluation Plots
+Average daily snus use: baseline vs adaptive recommender
+Adaptive recommender effect by user type
+User retention by user type
+Event-level trigger inference heatmap
+Intervention fatigue by user type
+Additional Analysis
+Daily money saved by user type
+Cumulative money saved by user type
+Distribution of inferred triggers
+Adaptive effect by inferred trigger
+Running the Simulation
+
+Install dependencies:
+
 pip install numpy pandas matplotlib
-```
 
-Run the simulation:
+Run:
 
-```bash
-python belief_qlearning_simulation.py
-```
-
-## Interpretation
-
-The goal of the simulation is not to perfectly predict real snus behavior. Instead, it demonstrates how a psychology-informed reinforcement learning system could adapt interventions based on user type, inferred triggers, relapse risk, and intervention fatigue.
-
-The project is especially focused on adaptive behavior change support, hidden trigger inference, and the tradeoff between effective nudging and user burden.
-
-
-## Algorithm Flowchart
-
-```mermaid
+python main.py
+Algorithm Flowchart
 flowchart TD
 
-    A[Start Simulation] --> B[Create Simulated Users]
+    A[Start Simulation] --> B[Create Users]
 
-    B --> C[Initialize Q-Learning System]
+    B --> C[Assign Hidden Trigger Profiles]
 
-    C --> D[For Each Simulation Day]
+    C --> D[Initialize Q-Learning]
 
-    D --> E[For Each Active User]
+    D --> E[For Each Day]
 
-    E --> F[Simulate Daily Cravings]
+    E --> F[Generate Hidden Trigger]
 
-    F --> G[Generate Hidden Trigger]
+    F --> G[Generate Noisy Observation]
 
-    G --> H[Observe Noisy Trigger Clue]
+    G --> H[Update Trigger Beliefs]
 
-    H --> I[Estimate Relapse Risk]
+    H --> I[Estimate Risk From Beliefs]
 
-    I --> J[Construct RL State]
+    F --> J[Calculate Actual Risk]
 
-    J --> K[Burden-Aware Intervention Decision]
+    I --> K[Construct RL State]
 
-    K --> L{Intervene?}
+    K --> L[Burden-Aware Intervention Decision]
 
-    L -->|Yes| M[Choose Nudge Using Q-Learning + Epsilon-Greedy]
+    L --> M{Intervene?}
 
-    L -->|No| N[No Intervention]
+    M -->|Yes| N[Choose Nudge Using Q-Learning]
 
-    M --> O[Possible Interventions]
-    N --> P[User Continues Without Intervention]
+    M -->|No| O[No Intervention]
 
-    O --> Q[Simulate User Response]
+    N --> P[User Response]
+    O --> P
 
-    P --> Q
+    J --> P
 
-    Q --> R{Response Type}
+    P --> Q{Response}
 
-    R -->|Skip| S[Increase Motivation and Self-Efficacy]
+    Q -->|Skip| R[Increase Self-Efficacy]
 
-    R -->|Delay| T[Small Positive Behaviour Change]
+    Q -->|Delay| S[Partial Success]
 
-    R -->|Use| U[Increase Craving and Relapse Risk]
+    Q -->|Use| T[Increase Craving]
 
-    R -->|Ignore| V[Increase Intervention Fatigue]
+    Q -->|Ignore| U[Increase Fatigue]
 
-    S --> W[Update Trigger Beliefs]
-    T --> W
-    U --> W
-    V --> W
+    R --> V[Update Beliefs]
+    S --> V
+    T --> V
+    U --> V
 
-    W --> X[Update Q-Table]
+    V --> W[Update Q-Table]
 
-    X --> Y[Track Outcomes]
+    W --> X[Track Outcomes]
 
-    Y --> Z[Check Dropout Probability]
+    X --> Y[Check Dropout]
 
-    Z --> AA{More Days?}
+    Y --> Z{More Days?}
 
-    AA -->|Yes| D
+    Z -->|Yes| E
 
-    AA -->|No| AB[Output Results and Plots]
+    Z -->|No| AA[Generate Evaluation Metrics]
 
-    AB --> AC[Behaviour Change Analysis]
+    AA --> AB[Generate Plots]
+Limitations
 
-    AC --> AD[Trigger Inference Accuracy]
+This simulation is intended as an exploratory and educational model rather than a predictive clinical tool.
 
-    AD --> AE[Dropout and Fatigue Analysis]
+Limitations include:
 
-    AE --> AF[Economic Savings Analysis]
-```
+simulated rather than real behavioral data
+hand-designed reward structure
+simplified psychological mechanisms
+simplified trigger inference
+no real sensor or mobile application data
+parameters calibrated for plausibility rather than estimated from empirical snus cessation datasets
+
+Despite these limitations, the project demonstrates how reinforcement learning, behavioral theory, and hidden-state inference can be combined to model adaptive behavior-change support systems.
