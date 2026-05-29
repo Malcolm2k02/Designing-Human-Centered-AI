@@ -26,10 +26,10 @@ REWARD = {
     "ignore": -1
 }
 
-COST_PER_PORTION = 0.23
+COST_PER_PORTION = 0.23 # Average cost of a snus portion in euros
 
-ALPHA = 0.1
-GAMMA = 0.9
+ALPHA = 0.1 # Learning rate for Q-learning updates
+GAMMA = 0.9 # Discount factor for future rewards in Q-learning updates
 
 EPSILON_START = 0.30
 EPSILON_END = 0.05
@@ -123,66 +123,40 @@ class User:
 
         self.strategy = random.choice(["cold_turkey", "gradual_reduction"])
 
-        # The system does not know the user's true triggers.
-        # It starts with equal beliefs about all possible triggers.
         self.trigger_beliefs = {
             trigger: 1 / len(CONTEXTS) for trigger in CONTEXTS
         }
 
-        self.trigger_profile = np.random.dirichlet(np.ones(len(CONTEXTS))) 
- 
+        self.trigger_profile = np.random.dirichlet(np.ones(len(CONTEXTS)))
+
     def most_likely_trigger(self):
-        """
-        The algorithm acts based on its current belief about the user's trigger,
-        not the hidden true trigger.
-        """
         return max(self.trigger_beliefs, key=self.trigger_beliefs.get)
 
-    def get_state(self, risk):
-        """
-        Partially observable state:
-        The true trigger is hidden, so the Q-table uses the most likely inferred trigger.
-        """
+    def get_state(self, estimated_risk):
         return (
             self.user_type,
             self.most_likely_trigger(),
-            discretize(risk),
+            discretize(estimated_risk),
             discretize(self.fatigue),
             self.strategy
         )
 
     def observe_trigger(self, true_triggers):
-        """
-        The system/user only observes one noisy clue about the true trigger.
-
-        Sometimes it observes one of the true triggers.
-        Sometimes it observes an unrelated trigger, representing uncertainty.
-        """
         if random.random() < 0.75:
             return random.choice(true_triggers)
         else:
             return random.choice(CONTEXTS)
 
     def update_trigger_beliefs(self, observed_trigger, response):
-        """
-        Updates inferred trigger profile after each craving event.
-        Stronger update when the user uses snus or ignores the system.
-        Weaker update when the user successfully skips or delays.
-        """
-
         if response == "use":
             self.trigger_beliefs[observed_trigger] += 0.20
-
         elif response == "ignore":
             self.trigger_beliefs[observed_trigger] += 0.12
-
         elif response == "delay":
             self.trigger_beliefs[observed_trigger] += 0.05
-
         elif response == "skip":
             self.trigger_beliefs[observed_trigger] += 0.02
 
-        # Slightly decay competing trigger beliefs.
         for trigger in self.trigger_beliefs:
             if trigger != observed_trigger:
                 self.trigger_beliefs[trigger] *= 0.98
@@ -194,10 +168,8 @@ class User:
 
     def predict_risk(self, true_triggers):
         """
-        Risk is based on hidden true triggers.
-
-        The algorithm does not directly observe these triggers, but the user
-        behavior is still affected by them.
+        Actual risk used to simulate user behavior.
+        This uses the real hidden trigger.
         """
 
         trigger_risk = sum(CONTEXT_RISK[t] for t in true_triggers)
@@ -215,8 +187,32 @@ class User:
 
         return max(0.0, min(1.0, risk))
 
-    def choose_nudge(self, risk, epsilon):
-        state = self.get_state(risk)
+    def estimate_risk_from_beliefs(self):
+        """
+        Estimated risk used by the algorithm.
+        This does NOT use the hidden true trigger.
+        """
+
+        expected_trigger_risk = 0.0
+
+        for trigger, probability in self.trigger_beliefs.items():
+            expected_trigger_risk += probability * CONTEXT_RISK[trigger]
+
+        risk = (
+            0.25 * self.addiction +
+            0.20 * self.stress +
+            0.20 * self.craving +
+            0.15 * self.fatigue +
+            0.10 * self.social_pressure -
+            0.20 * self.motivation -
+            0.20 * self.self_efficacy +
+            expected_trigger_risk
+        )
+
+        return max(0.0, min(1.0, risk))
+
+    def choose_nudge(self, estimated_risk, epsilon):
+        state = self.get_state(estimated_risk)
 
         if state not in Q_TABLE:
             Q_TABLE[state] = {nudge: 0.0 for nudge in NUDGES}
@@ -226,7 +222,7 @@ class User:
 
         return max(Q_TABLE[state], key=Q_TABLE[state].get)
 
-    def respond_to_nudge(self, risk, nudge):
+    def respond_to_nudge(self, actual_risk, nudge):
         if nudge == "no_intervention":
             use_probability = (
                 0.30 +
@@ -262,7 +258,7 @@ class User:
             * (1 - self.addiction * 0.4)
         )
 
-        success_probability -= risk * 0.15
+        success_probability -= actual_risk * 0.15
         success_probability = max(0.05, min(0.90, success_probability))
 
         r = random.random()
@@ -285,6 +281,9 @@ class User:
 
         if response == "ignore":
             reward -= self.fatigue * 0.3
+
+        if state not in Q_TABLE:
+            Q_TABLE[state] = {n: 0.0 for n in NUDGES}
 
         if next_state not in Q_TABLE:
             Q_TABLE[next_state] = {n: 0.0 for n in NUDGES}
@@ -331,10 +330,6 @@ class User:
                 self.motivation = min(1.0, self.motivation + 0.003)
 
     def check_dropout(self):
-        """
-        Softer dropout model so high-risk users do not disappear too quickly.
-        """
-
         dropout_probability = (
             0.002 +
             0.03 * self.fatigue +
@@ -421,14 +416,11 @@ def simulate(n_users=300, days=30, algorithm=True, training_mode=True):
 
             for _ in range(daily_cravings):
 
-                # The true trigger exists, but is hidden from the algorithm.
                 true_triggers = sample_true_triggers_for_user(user)
-
-                # The user/system only observes a noisy clue.
                 observed_trigger = user.observe_trigger(true_triggers)
 
-                # Risk is affected by the true hidden trigger.
-                risk = user.predict_risk(true_triggers)
+                actual_risk = user.predict_risk(true_triggers)
+                estimated_risk = user.estimate_risk_from_beliefs()
 
                 actual_primary_trigger = true_triggers[0]
                 inferred_trigger_before = user.most_likely_trigger()
@@ -450,10 +442,8 @@ def simulate(n_users=300, days=30, algorithm=True, training_mode=True):
 
                     continue
 
-                state = user.get_state(risk)
+                state = user.get_state(estimated_risk)
 
-                # Make sure the current state exists in the Q-table,
-                # even if the burden-aware logic chooses no intervention.
                 if state not in Q_TABLE:
                     Q_TABLE[state] = {nudge: 0.0 for nudge in NUDGES}
 
@@ -463,19 +453,18 @@ def simulate(n_users=300, days=30, algorithm=True, training_mode=True):
                 )
 
                 if random.random() < nudge_probability:
-                    nudge = user.choose_nudge(risk, current_epsilon)
+                    nudge = user.choose_nudge(estimated_risk, current_epsilon)
                 else:
                     nudge = "no_intervention"
-                
+
                 if nudge != "no_intervention":
                     nudges_sent += 1
 
-                response = user.respond_to_nudge(risk, nudge)
+                response = user.respond_to_nudge(actual_risk, nudge)
 
                 user.update_feedback_loops(response, nudge)
-
-                # Update trigger beliefs after seeing what happened.
                 user.update_trigger_beliefs(observed_trigger, response)
+
                 event_results.append({
                     "day": day,
                     "user_id": user_id,
@@ -487,14 +476,15 @@ def simulate(n_users=300, days=30, algorithm=True, training_mode=True):
                     "inferred_trigger": inferred_trigger_before,
                     "nudge": nudge,
                     "response": response,
-                    "risk": risk,
+                    "actual_risk": actual_risk,
+                    "estimated_risk": estimated_risk,
                     "fatigue": user.fatigue,
                     "motivation": user.motivation,
                     "self_efficacy": user.self_efficacy
                 })
 
-                next_risk = user.predict_risk(true_triggers)
-                next_state = user.get_state(next_risk)
+                next_estimated_risk = user.estimate_risk_from_beliefs()
+                next_state = user.get_state(next_estimated_risk)
 
                 if training_mode:
                     user.update_learning(state, nudge, response, next_state)
@@ -810,6 +800,7 @@ plt.tight_layout()
 plt.show()
 
 # Plot 7: Average snus use by inferred trigger
+# Plot 7: Average snus use by inferred trigger
 trigger_effect = (
     adaptive_active
     .groupby(["day", "inferred_trigger"])["snus_used"]
@@ -823,10 +814,18 @@ for trigger in trigger_effect["inferred_trigger"].unique():
 
     subset = trigger_effect[
         trigger_effect["inferred_trigger"] == trigger
-    ].rolling(window=3).mean()
+    ].copy()
+
+    # Smooth only the numeric snus_used column
+    subset["snus_used_smoothed"] = (
+        subset["snus_used"]
+        .rolling(window=3, min_periods=1)
+        .mean()
+    )
+
     plt.plot(
         subset["day"],
-        subset["snus_used"],
+        subset["snus_used_smoothed"],
         linewidth=2,
         label=trigger
     )
